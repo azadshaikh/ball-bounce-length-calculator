@@ -1,6 +1,6 @@
 // Constants
 const GRAVITY = 9.81; // m/s²
-const PITCH_DISTANCE = 16; // meters from release point
+const STUMPS_DISTANCE = 22; // meters from release point (where batsman stands)
 const BALL_RADIUS = 0.036; // meters
 const COEFFICIENT_OF_RESTITUTION = 0.7; // Energy loss on bounce - increased for more noticeable effect
 const WICKET_HEIGHT = 0.7112; // meters (28 inches)
@@ -12,6 +12,7 @@ const ctx = canvas.getContext('2d');
 const releaseHeight1Input = document.getElementById('releaseHeight1');
 const releaseHeight2Input = document.getElementById('releaseHeight2');
 const ballSpeedInput = document.getElementById('ballSpeed');
+const pitchDistanceInput = document.getElementById('pitchDistance');
 const calculateBtn = document.getElementById('calculateBtn');
 const resultsDiv = document.getElementById('results');
 
@@ -74,7 +75,7 @@ function drawWickets(x, color = '#333') {
 }
 
 // Calculate trajectory points
-function calculateTrajectory(releaseHeight, speed) {
+function calculateTrajectory(releaseHeight, speed, pitchDistance) {
     const points = [];
     const dt = 0.01; // Time step in seconds
     
@@ -84,7 +85,7 @@ function calculateTrajectory(releaseHeight, speed) {
     
     // Calculate time to reach pitch point
     const speedMS = speed * (1000/3600); // Convert km/h to m/s
-    const timeToPitch = PITCH_DISTANCE / speedMS;
+    const timeToPitch = pitchDistance / speedMS;
     
     // Calculate initial vertical velocity to reach ground at pitch point using correct kinematic equation
     const initialVy = (0.5 * GRAVITY * timeToPitch) - (releaseHeight / timeToPitch);
@@ -96,8 +97,9 @@ function calculateTrajectory(releaseHeight, speed) {
     let pitchPoint = null;
     let lastPoint = null;
     let bouncePoint = null;
+    let heightAtStumps = null;
     
-    while (x <= 25) { // Calculate until reaching end of pitch
+    while (x <= STUMPS_DISTANCE + 1) { // Calculate until passing stumps
         lastPoint = {x, y, isPitched};
         
         // Update position using velocity
@@ -105,28 +107,28 @@ function calculateTrajectory(releaseHeight, speed) {
         const nextY = y + currentVy * dt;
         
         // Check if ball has reached pitch point
-        if (!isPitched && x < PITCH_DISTANCE && nextX >= PITCH_DISTANCE) {
+        if (!isPitched && x < pitchDistance && nextX >= pitchDistance) {
             isPitched = true;
-            // Interpolate to exact pitch point
-            const ratio = (PITCH_DISTANCE - x) / (nextX - x);
             pitchPoint = {
-                x: PITCH_DISTANCE,
+                x: pitchDistance,
                 y: 0,
                 isPitched: true
             };
+            points.push(pitchPoint);
             
             // Calculate bounce velocity based on impact speed
             currentVy = Math.abs(currentVy) * COEFFICIENT_OF_RESTITUTION;
-            x = PITCH_DISTANCE;
+            x = pitchDistance;
             y = 0;
         } else {
             points.push(lastPoint);
             x = nextX;
+            
             // Check for bounce after pitch
             if (isPitched && bouncePoint === null && nextY < 0) {
                 // Calculate exact bounce time using quadratic formula
                 const a = 0.5 * GRAVITY;
-                const b = -currentVy; // Negative because velocity is downward
+                const b = -currentVy;
                 const c = -y;
                 const discriminant = b*b - 4*a*c;
                 
@@ -147,6 +149,13 @@ function calculateTrajectory(releaseHeight, speed) {
                 y = Math.max(0, nextY); // Don't let the ball go below ground
             }
             
+            // Record height when ball passes stumps
+            if (heightAtStumps === null && x >= STUMPS_DISTANCE) {
+                // Interpolate height at exact stumps position
+                const ratio = (STUMPS_DISTANCE - (x - currentVx * dt)) / (x - (x - currentVx * dt));
+                heightAtStumps = y - (y - lastPoint.y) * (1 - ratio);
+            }
+            
             // Update vertical velocity due to gravity
             currentVy -= GRAVITY * dt;
         }
@@ -155,12 +164,13 @@ function calculateTrajectory(releaseHeight, speed) {
     return {
         points,
         pitchPoint: pitchPoint,
-        finalPoint: bouncePoint
+        bouncePoint: bouncePoint,
+        heightAtStumps: heightAtStumps
     };
 }
 
 // Draw both trajectories
-function drawTrajectories(trajectory1, trajectory2) {
+function drawTrajectories(trajectory1, trajectory2, pitchDistance) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Draw ground
@@ -214,7 +224,7 @@ function drawTrajectories(trajectory1, trajectory2) {
     // Draw pitch point line
     ctx.setLineDash([]);
     ctx.beginPath();
-    const pitchPoint = worldToCanvas(PITCH_DISTANCE, 0);
+    const pitchPoint = worldToCanvas(pitchDistance, 0);
     ctx.moveTo(pitchPoint.x, 0);
     ctx.lineTo(pitchPoint.x, canvas.height);
     ctx.strokeStyle = '#2e7d32';
@@ -270,7 +280,7 @@ function drawTrajectories(trajectory1, trajectory2) {
         ctx.fill();
         
         // Draw bounce point if it exists
-        const bouncePoint = trajectory.finalPoint;
+        const bouncePoint = trajectory.bouncePoint;
         if (bouncePoint) {
             const canvasBouncePoint = worldToCanvas(bouncePoint.x, bouncePoint.y);
             ctx.beginPath();
@@ -278,20 +288,53 @@ function drawTrajectories(trajectory1, trajectory2) {
             ctx.fillStyle = color;
             ctx.fill();
         }
+
+        // Draw point at stumps
+        if (trajectory.heightAtStumps !== null) {
+            const stumpsPoint = worldToCanvas(STUMPS_DISTANCE, trajectory.heightAtStumps);
+            ctx.beginPath();
+            ctx.arc(stumpsPoint.x, stumpsPoint.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            
+            // Draw height line at stumps
+            ctx.beginPath();
+            ctx.setLineDash([5, 5]);
+            ctx.moveTo(stumpsPoint.x, stumpsPoint.y);
+            ctx.lineTo(stumpsPoint.x, worldToCanvas(STUMPS_DISTANCE, 0).y);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Add height label
+            ctx.fillStyle = color;
+            ctx.textAlign = 'left';
+            ctx.fillText(`${trajectory.heightAtStumps.toFixed(2)}m`, stumpsPoint.x + 5, stumpsPoint.y);
+        }
     }
     
     drawBallPoints(trajectory1, '#d32f2f');
     drawBallPoints(trajectory2, '#1976d2');
+
+    // Draw stumps line
+    ctx.beginPath();
+    const stumpsLine = worldToCanvas(STUMPS_DISTANCE, 0);
+    ctx.moveTo(stumpsLine.x, 0);
+    ctx.lineTo(stumpsLine.x, canvas.height);
+    ctx.strokeStyle = '#2e7d32';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#2e7d32';
+    ctx.textAlign = 'center';
+    ctx.fillText('Stumps', stumpsLine.x, 40);
 }
 
 // Update results
 function updateResults(trajectory1, trajectory2) {
-    const finalPoint1 = trajectory1.finalPoint;
-    const finalPoint2 = trajectory2.finalPoint;
-
-    const bounceDistance1 = finalPoint1 ? finalPoint1.x - PITCH_DISTANCE : 0;
-    const bounceDistance2 = finalPoint2 ? finalPoint2.x - PITCH_DISTANCE : 0;
-    const bounceDifference = Math.abs(bounceDistance2 - bounceDistance1);
+    const heightAtStumps1 = trajectory1.heightAtStumps;
+    const heightAtStumps2 = trajectory2.heightAtStumps;
+    const heightDifference = Math.abs(heightAtStumps2 - heightAtStumps1);
 
     resultsDiv.innerHTML = `
         <div class="col-md-6">
@@ -299,7 +342,7 @@ function updateResults(trajectory1, trajectory2) {
                 <div class="card-body">
                     <h3 class="card-title">Ball 1 (Red)</h3>
                     <p class="mb-2">Release Height: ${trajectory1.points[0].y.toFixed(2)} m</p>
-                    <p class="mb-0">Bounce Length: ${bounceDistance1.toFixed(2)} m</p>
+                    <p class="mb-0">Height at Stumps: ${heightAtStumps1.toFixed(2)} m</p>
                 </div>
             </div>
         </div>
@@ -308,14 +351,14 @@ function updateResults(trajectory1, trajectory2) {
                 <div class="card-body">
                     <h3 class="card-title">Ball 2 (Blue)</h3>
                     <p class="mb-2">Release Height: ${trajectory2.points[0].y.toFixed(2)} m</p>
-                    <p class="mb-0">Bounce Length: ${bounceDistance2.toFixed(2)} m</p>
+                    <p class="mb-0">Height at Stumps: ${heightAtStumps2.toFixed(2)} m</p>
                 </div>
             </div>
         </div>
        <div class="col-12">
             <div class="card">
                 <div class="card-body difference text-center">
-                    <p class="h5 mb-0">Difference in Bounce Length: ${(bounceDifference * 100).toFixed(1)} cm</p>
+                    <p class="h5 mb-0">Difference in Height at Stumps: ${(heightDifference * 100).toFixed(1)} cm</p>
                 </div>
             </div>
         </div>
@@ -327,11 +370,12 @@ function handleCalculate() {
     const releaseHeight1 = parseFloat(releaseHeight1Input.value);
     const releaseHeight2 = parseFloat(releaseHeight2Input.value);
     const ballSpeed = parseFloat(ballSpeedInput.value);
+    const pitchDistance = parseFloat(pitchDistanceInput.value);
     
-    const trajectory1 = calculateTrajectory(releaseHeight1, ballSpeed);
-    const trajectory2 = calculateTrajectory(releaseHeight2, ballSpeed);
+    const trajectory1 = calculateTrajectory(releaseHeight1, ballSpeed, pitchDistance);
+    const trajectory2 = calculateTrajectory(releaseHeight2, ballSpeed, pitchDistance);
     
-    drawTrajectories(trajectory1, trajectory2);
+    drawTrajectories(trajectory1, trajectory2, pitchDistance);
     updateResults(trajectory1, trajectory2);
 }
 
@@ -340,6 +384,7 @@ calculateBtn.addEventListener('click', handleCalculate);
 ballSpeedInput.addEventListener('input', handleCalculate);
 releaseHeight1Input.addEventListener('input', handleCalculate);
 releaseHeight2Input.addEventListener('input', handleCalculate);
+pitchDistanceInput.addEventListener('input', handleCalculate);
 
 // Initial calculation
 handleCalculate();

@@ -174,4 +174,29 @@ canvas {
         padding: 0.5rem 1rem;
         font-size: 1rem;
     }
+}
+
+.math {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 10px 0;
+}
+
+.math p {
+    margin-bottom: 8px;
+}
+
+.math p:last-child {
+    margin-bottom: 0;
+}
+
+h4 {
+    color: #2e7d32;
+    margin-top: 20px;
+    margin-bottom: 15px;
+}
+
+.card-title {
+    color: #1976d2;
 } 
