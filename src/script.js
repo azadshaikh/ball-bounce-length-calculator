@@ -86,8 +86,8 @@ function calculateTrajectory(releaseHeight, speed) {
     const speedMS = speed * (1000/3600); // Convert km/h to m/s
     const timeToPitch = PITCH_DISTANCE / speedMS;
     
-    // Calculate initial vertical velocity to reach ground at pitch point
-    const initialVy = -(releaseHeight / timeToPitch + (GRAVITY * timeToPitch) / 2);
+    // Calculate initial vertical velocity to reach ground at pitch point using correct kinematic equation
+    const initialVy = (0.5 * GRAVITY * timeToPitch) - (releaseHeight / timeToPitch);
     
     let currentVx = speedMS;
     let currentVy = initialVy;
@@ -95,6 +95,7 @@ function calculateTrajectory(releaseHeight, speed) {
     let isPitched = false;
     let pitchPoint = null;
     let lastPoint = null;
+    let bouncePoint = null;
     
     while (x <= 25) { // Calculate until reaching end of pitch
         lastPoint = {x, y, isPitched};
@@ -113,7 +114,6 @@ function calculateTrajectory(releaseHeight, speed) {
                 y: 0,
                 isPitched: true
             };
-            points.push(pitchPoint);
             
             // Calculate bounce velocity based on impact speed
             currentVy = Math.abs(currentVy) * COEFFICIENT_OF_RESTITUTION;
@@ -122,7 +122,30 @@ function calculateTrajectory(releaseHeight, speed) {
         } else {
             points.push(lastPoint);
             x = nextX;
-            y = Math.max(0, nextY); // Don't let the ball go below ground
+            // Check for bounce after pitch
+            if (isPitched && bouncePoint === null && nextY < 0) {
+                // Calculate exact bounce time using quadratic formula
+                const a = 0.5 * GRAVITY;
+                const b = -currentVy; // Negative because velocity is downward
+                const c = -y;
+                const discriminant = b*b - 4*a*c;
+                
+                if (discriminant >= 0) {
+                    const t = (-b - Math.sqrt(discriminant)) / (2*a);
+                    const dtBounce = t;
+                    const bounceX = x + currentVx * dtBounce;
+                    bouncePoint = {x: bounceX, y: 0, isPitched: true};
+                    points.push(bouncePoint);
+                    
+                    // Update positions and velocity after bounce
+                    x = bounceX;
+                    y = 0;
+                    currentVy = Math.abs(currentVy) * COEFFICIENT_OF_RESTITUTION;
+                }
+            } else {
+                x = nextX;
+                y = Math.max(0, nextY); // Don't let the ball go below ground
+            }
             
             // Update vertical velocity due to gravity
             currentVy -= GRAVITY * dt;
@@ -132,7 +155,7 @@ function calculateTrajectory(releaseHeight, speed) {
     return {
         points,
         pitchPoint: pitchPoint,
-        finalPoint: lastPoint
+        finalPoint: bouncePoint
     };
 }
 
@@ -246,13 +269,15 @@ function drawTrajectories(trajectory1, trajectory2) {
         ctx.fillStyle = color;
         ctx.fill();
         
-        // Draw bounce point
-        const bouncePoint = points[points.length - 1];
-        const canvasBouncePoint = worldToCanvas(bouncePoint.x, bouncePoint.y);
-        ctx.beginPath();
-        ctx.arc(canvasBouncePoint.x, canvasBouncePoint.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
+        // Draw bounce point if it exists
+        const bouncePoint = trajectory.finalPoint;
+        if (bouncePoint) {
+            const canvasBouncePoint = worldToCanvas(bouncePoint.x, bouncePoint.y);
+            ctx.beginPath();
+            ctx.arc(canvasBouncePoint.x, canvasBouncePoint.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
     }
     
     drawBallPoints(trajectory1, '#d32f2f');
@@ -261,13 +286,13 @@ function drawTrajectories(trajectory1, trajectory2) {
 
 // Update results
 function updateResults(trajectory1, trajectory2) {
-    const bouncePoint1 = trajectory1.finalPoint;
-    const bouncePoint2 = trajectory2.finalPoint;
-    
-    const bounceDistance1 = bouncePoint1.x - PITCH_DISTANCE;
-    const bounceDistance2 = bouncePoint2.x - PITCH_DISTANCE;
+    const finalPoint1 = trajectory1.finalPoint;
+    const finalPoint2 = trajectory2.finalPoint;
+
+    const bounceDistance1 = finalPoint1 ? finalPoint1.x - PITCH_DISTANCE : 0;
+    const bounceDistance2 = finalPoint2 ? finalPoint2.x - PITCH_DISTANCE : 0;
     const bounceDifference = Math.abs(bounceDistance2 - bounceDistance1);
-    
+
     resultsDiv.innerHTML = `
         <div class="col-md-6">
             <div class="card ball-1">
@@ -287,10 +312,10 @@ function updateResults(trajectory1, trajectory2) {
                 </div>
             </div>
         </div>
-        <div class="col-12">
+       <div class="col-12">
             <div class="card">
                 <div class="card-body difference text-center">
-                    <p class="h5 mb-0">Difference in Bounce Length: ${(bounceDifference * 100).toFixed(1)} centimeters</p>
+                    <p class="h5 mb-0">Difference in Bounce Length: ${(bounceDifference * 100).toFixed(1)} cm</p>
                 </div>
             </div>
         </div>
@@ -317,4 +342,4 @@ releaseHeight1Input.addEventListener('input', handleCalculate);
 releaseHeight2Input.addEventListener('input', handleCalculate);
 
 // Initial calculation
-handleCalculate(); 
+handleCalculate();
